@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CARMELI — Consultor de Precios</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:       #0d0e10;
+      --surface:  #13151a;
+      --border:   #1f2229;
+      --border2:  #2a2d38;
+      --amber:    #f5a623;
+      --amber2:   #e8921a;
+      --green:    #2dce89;
+      --red:      #f5365c;
+      --text:     #e8e9ec;
+      --muted:    #6b7280;
+      --card:     #181b22;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Syne', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ─── NOISE OVERLAY ─── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ════════════════════════════════
+       LOGIN SCREEN
+    ════════════════════════════════ */
+    #login-screen {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      background: var(--bg);
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 400px;
+      padding: 20px;
+    }
+
+    .login-logo {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    .login-logo h1 {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 64px;
+      letter-spacing: 6px;
+      color: var(--amber);
+      line-height: 1;
+      text-shadow: 0 0 40px rgba(245,166,35,0.3);
+    }
+
+    .login-logo p {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 4px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-top: 6px;
+    }
+
+    .login-box {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 12px;
+      padding: 36px;
+    }
+
+    .login-box h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 28px;
+      color: var(--text);
+    }
+
+    .field {
+      margin-bottom: 20px;
+    }
+
+    .field label {
+      display: block;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .field input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 12px 16px;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .field input:focus {
+      border-color: var(--amber);
+    }
+
+    .btn-login {
+      width: 100%;
+      background: var(--amber);
+      color: #0d0e10;
+      border: none;
+      border-radius: 8px;
+      padding: 14px;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 18px;
+      letter-spacing: 3px;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+      margin-top: 8px;
+    }
+
+    .btn-login:hover { background: var(--amber2); }
+    .btn-login:active { transform: scale(0.99); }
+
+    .login-error {
+      background: rgba(245,54,92,0.1);
+      border: 1px solid rgba(245,54,92,0.3);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--red);
+      margin-top: 14px;
+      display: none;
+    }
+
+    /* ════════════════════════════════
+       APP
+    ════════════════════════════════ */
+    #app { display: none; }
+
+    /* HEADER */
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(13,14,16,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .header-brand {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 28px;
+      letter-spacing: 4px;
+      color: var(--amber);
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .user-badge {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      padding: 5px 12px;
+      border-radius: 20px;
+    }
+
+    .btn-logout {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 1px;
+      color: var(--muted);
+      background: none;
+      border: 1px solid var(--border2);
+      padding: 5px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-logout:hover {
+      color: var(--red);
+      border-color: var(--red);
+    }
+
+    /* MAIN LAYOUT */
+    .main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 40px 24px;
+    }
+
+    /* SEARCH PANEL */
+    .search-panel {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 16px;
+      padding: 32px;
+      margin-bottom: 32px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .search-panel::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--amber), transparent);
+    }
+
+    .panel-title {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 3px;
+      color: var(--amber);
+      text-transform: uppercase;
+      margin-bottom: 24px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .form-field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .form-field label {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .form-field input {
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 11px 14px;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .form-field input:focus {
+      border-color: var(--amber);
+      box-shadow: 0 0 0 3px rgba(245,166,35,0.07);
+    }
+
+    .form-field input::placeholder {
+      color: #3a3d48;
+    }
+
+    .btn-buscar {
+      background: var(--amber);
+      color: #0d0e10;
+      border: none;
+      border-radius: 10px;
+      padding: 13px 32px;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 20px;
+      letter-spacing: 3px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn-buscar:hover {
+      background: var(--amber2);
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px rgba(245,166,35,0.25);
+    }
+
+    .btn-buscar:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* STATS */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 32px;
+      animation: fadeUp 0.4s ease;
+    }
+
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border2);
+      border-radius: 12px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .stat-card.highlight {
+      border-color: rgba(245,166,35,0.4);
+      background: rgba(245,166,35,0.04);
+    }
+
+    .stat-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+
+    .stat-value {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 28px;
+      letter-spacing: 1px;
+      color: var(--text);
+      line-height: 1;
+    }
+
+    .stat-card.highlight .stat-value {
+      color: var(--amber);
+    }
+
+    .stat-sub {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    /* RESULTS */
+    .results-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .results-title {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 3px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .results-count {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--amber);
+      background: rgba(245,166,35,0.1);
+      padding: 3px 10px;
+      border-radius: 20px;
+    }
+
+    /* VEHICLE LIST */
+    .vehicle-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      animation: fadeUp 0.5s ease;
+    }
+
+    .vehicle-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+      display: grid;
+      grid-template-columns: 56px 1fr auto;
+      gap: 16px;
+      align-items: center;
+      transition: all 0.2s;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .vehicle-card:hover {
+      border-color: var(--border2);
+      background: var(--surface);
+      transform: translateX(3px);
+    }
+
+    .vehicle-thumb {
+      width: 56px;
+      height: 42px;
+      border-radius: 6px;
+      object-fit: cover;
+      background: var(--border);
+    }
+
+    .vehicle-thumb-placeholder {
+      width: 56px;
+      height: 42px;
+      border-radius: 6px;
+      background: var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+
+    .vehicle-info h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 5px;
+      line-height: 1.3;
+    }
+
+    .vehicle-meta {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .meta-tag {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .vehicle-price {
+      text-align: right;
+    }
+
+    .vehicle-price .price {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 22px;
+      color: var(--text);
+      letter-spacing: 1px;
+      white-space: nowrap;
+    }
+
+    .vehicle-price .cond {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      color: var(--muted);
+      text-align: right;
+    }
+
+    /* LOADING */
+    .loader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px;
+      gap: 16px;
+    }
+
+    .loader-ring {
+      width: 40px;
+      height: 40px;
+      border: 2px solid var(--border2);
+      border-top-color: var(--amber);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .loader-text {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    /* EMPTY / ERROR */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+    }
+
+    .empty-icon { font-size: 48px; margin-bottom: 16px; }
+
+    .empty-state h3 {
+      font-size: 16px;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .empty-state p {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .error-msg {
+      background: rgba(245,54,92,0.08);
+      border: 1px solid rgba(245,54,92,0.2);
+      border-radius: 10px;
+      padding: 16px 20px;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--red);
+    }
+
+    /* ANIMATIONS */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 640px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .form-grid  { grid-template-columns: 1fr 1fr; }
+      .vehicle-card { grid-template-columns: 1fr auto; }
+      .vehicle-thumb, .vehicle-thumb-placeholder { display: none; }
+      .header { padding: 0 16px; }
+      .main { padding: 24px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══ LOGIN ═══ -->
+<div id="login-screen">
+  <div class="login-container">
+    <div class="login-logo">
+      <h1>CARMELI</h1>
+      <p>Consultor de precios · Argentina</p>
+    </div>
+    <div class="login-box">
+      <h2>Iniciar sesión</h2>
+      <div class="field">
+        <label>Usuario</label>
+        <input type="text" id="login-user" placeholder="usuario" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label>Contraseña</label>
+        <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" />
+      </div>
+      <button class="btn-login" onclick="doLogin()">INGRESAR</button>
+      <div class="login-error" id="login-error">Usuario o contraseña incorrectos</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ APP ═══ -->
+<div id="app">
+
+  <header class="header">
+    <div class="header-brand">CARMELI</div>
+    <div class="header-right">
+      <div class="user-badge" id="user-badge">—</div>
+      <button class="btn-logout" onclick="doLogout()">SALIR</button>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <!-- Search -->
+    <div class="search-panel">
+      <div class="panel-title">// Consulta de precio</div>
+      <div class="form-grid">
+        <div class="form-field">
+          <label>Marca</label>
+          <input type="text" id="f-marca" placeholder="Volkswagen" />
+        </div>
+        <div class="form-field">
+          <label>Modelo</label>
+          <input type="text" id="f-modelo" placeholder="Golf" />
+        </div>
+        <div class="form-field">
+          <label>Versión</label>
+          <input type="text" id="f-version" placeholder="Trendline" />
+        </div>
+        <div class="form-field">
+          <label>Año</label>
+          <input type="number" id="f-anio" placeholder="2019" min="1990" max="2025" />
+        </div>
+        <div class="form-field">
+          <label>Kilómetros</label>
+          <input type="number" id="f-km" placeholder="80000" />
+        </div>
+      </div>
+      <button class="btn-buscar" id="btn-buscar" onclick="buscar()">
+        <span>🔍</span> BUSCAR EN MERCADOLIBRE
+      </button>
+    </div>
+
+    <!-- Stats (hidden until results) -->
+    <div id="stats-section" style="display:none"></div>
+
+    <!-- Results -->
+    <div id="results-section"></div>
+
+  </main>
+</div>
+
+<script>
+  // ── USUARIOS ──────────────────────────────────────────────────
+  const USUARIOS = [
+    { usuario: 'admin',     clave: 'carmeli2025', nombre: 'Administrador' },
+    { usuario: 'vendedor1', clave: 'auto2025',    nombre: 'Vendedor 1' },
+    { usuario: 'vendedor2', clave: 'auto2025',    nombre: 'Vendedor 2' },
+  ];
+
+  // ── AUTH ──────────────────────────────────────────────────────
+  function doLogin() {
+    const u = document.getElementById('login-user').value.trim().toLowerCase();
+    const p = document.getElementById('login-pass').value;
+    const user = USUARIOS.find(x => x.usuario === u && x.clave === p);
+
+    if (!user) {
+      document.getElementById('login-error').style.display = 'block';
+      return;
+    }
+
+    sessionStorage.setItem('cm_user', JSON.stringify(user));
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    document.getElementById('user-badge').textContent = user.nombre;
+  }
+
+  function doLogout() {
+    sessionStorage.removeItem('cm_user');
+    location.reload();
+  }
+
+  // Auto-login si ya estaba logueado
+  const savedUser = sessionStorage.getItem('cm_user');
+  if (savedUser) {
+    const user = JSON.parse(savedUser);
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    document.getElementById('user-badge').textContent = user.nombre;
+  }
+
+  // Enter en login
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && document.getElementById('login-screen').style.display !== 'none') {
+      doLogin();
+    }
+  });
+
+  // ── BUSCAR ────────────────────────────────────────────────────
+  async function buscar() {
+    const marca   = document.getElementById('f-marca').value.trim();
+    const modelo  = document.getElementById('f-modelo').value.trim();
+    const version = document.getElementById('f-version').value.trim();
+    const anio    = document.getElementById('f-anio').value.trim();
+
+    if (!marca || !modelo) {
+      alert('Por favor ingresá al menos la Marca y el Modelo.');
+      return;
+    }
+
+    const btn = document.getElementById('btn-buscar');
+    btn.disabled = true;
+
+    // Loader
+    document.getElementById('stats-section').style.display = 'none';
+    document.getElementById('results-section').innerHTML = `
+      <div class="loader">
+        <div class="loader-ring"></div>
+        <div class="loader-text">Consultando MercadoLibre...</div>
+      </div>`;
+
+    try {
+      const params = new URLSearchParams({ marca, modelo, version, anio });
+      const res = await fetch(`/api/buscar?${params}`);
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || 'Error desconocido');
+
+      renderResultados(data, marca, modelo);
+    } catch (err) {
+      document.getElementById('results-section').innerHTML = `
+        <div class="error-msg">⚠️ Error: ${err.message}</div>`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ── RENDER ────────────────────────────────────────────────────
+  function formatPrecio(n) {
+    return '$ ' + n.toLocaleString('es-AR');
+  }
+
+  function renderResultados(data, marca, modelo) {
+    const { estadisticas: stats, vehiculos, total, muestra } = data;
+
+    // Stats
+    if (muestra > 0) {
+      const statsHtml = `
+        <div class="stats-grid">
+          <div class="stat-card highlight">
+            <div class="stat-label">Precio promedio</div>
+            <div class="stat-value">${formatPrecio(stats.promedio)}</div>
+            <div class="stat-sub">Basado en ${muestra} publicaciones</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Mediana</div>
+            <div class="stat-value">${formatPrecio(stats.mediana)}</div>
+            <div class="stat-sub">Precio central</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Precio mínimo</div>
+            <div class="stat-value">${formatPrecio(stats.minimo)}</div>
+            <div class="stat-sub">Más económico</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Precio máximo</div>
+            <div class="stat-value">${formatPrecio(stats.maximo)}</div>
+            <div class="stat-sub">Más caro</div>
+          </div>
+        </div>`;
+
+      document.getElementById('stats-section').innerHTML = statsHtml;
+      document.getElementById('stats-section').style.display = 'block';
+    }
+
+    // Vehicles
+    if (vehiculos.length === 0) {
+      document.getElementById('results-section').innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🔎</div>
+          <h3>Sin resultados</h3>
+          <p>No encontramos publicaciones para "${marca} ${modelo}".<br/>Intentá con términos más generales.</p>
+        </div>`;
+      return;
+    }
+
+    const items = vehiculos.map(v => `
+      <a class="vehicle-card" href="${v.link}" target="_blank" rel="noopener">
+        ${v.imagen
+          ? `<img class="vehicle-thumb" src="${v.imagen}" alt="${v.titulo}" loading="lazy" />`
+          : `<div class="vehicle-thumb-placeholder">🚗</div>`}
+        <div class="vehicle-info">
+          <h3>${v.titulo}</h3>
+          <div class="vehicle-meta">
+            ${v.anio      ? `<span class="meta-tag">📅 ${v.anio}</span>` : ''}
+            ${v.km        ? `<span class="meta-tag">🛣️ ${Number(v.km).toLocaleString('es-AR')} km</span>` : ''}
+            ${v.ubicacion ? `<span class="meta-tag">📍 ${v.ubicacion}</span>` : ''}
+            <span class="meta-tag">${v.condicion}</span>
+          </div>
+        </div>
+        <div class="vehicle-price">
+          <div class="price">${formatPrecio(v.precio)}</div>
+          <div class="cond">Ver en ML →</div>
+        </div>
+      </a>`).join('');
+
+    document.getElementById('results-section').innerHTML = `
+      <div class="results-header">
+        <div class="results-title">// Resultados encontrados</div>
+        <div class="results-count">${total.toLocaleString('es-AR')} publicaciones totales</div>
+      </div>
+      <div class="vehicle-list">${items}</div>`;
+  }
+
+  // Enter en formulario
+  ['f-marca','f-modelo','f-version','f-anio','f-km'].forEach(id => {
+    document.getElementById(id)?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') buscar();
+    });
+  });
+</script>
+</body>
+</html>
