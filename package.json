@@ -1,0 +1,6 @@
+{
+  "name": "carmeli",
+  "version": "2.0.0",
+  "description": "Consultor de precios de vehículos con IA",
+  "engines": { "node": ">=18" }
+}
