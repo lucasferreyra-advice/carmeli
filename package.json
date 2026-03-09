@@ -1,6 +1,0 @@
-{
-  "name": "carmeli",
-  "version": "1.0.0",
-  "description": "Consultor de precios de vehículos — MercadoLibre Argentina",
-  "engines": { "node": ">=18" }
-}
