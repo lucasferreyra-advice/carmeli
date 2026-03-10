@@ -22,19 +22,19 @@ export default async function handler(req, res) {
 Respondé ÚNICAMENTE con un objeto JSON válido, sin texto adicional, sin markdown, sin explicaciones fuera del JSON:
 
 {
-  "promedio": <número entero en ARS>,
-  "minimo": <número entero en ARS>,
-  "maximo": <número entero en ARS>,
-  "mediana": <número entero en ARS>,
-  "confianza": "<alta|media|baja>",
-  "analisis": "<2-3 oraciones sobre el precio de mercado actual de este auto en Argentina>",
-  "precio_justo": "<rango recomendado para comprar y para vender>",
-  "consejo_compra": "<2-3 consejos concretos para quien quiere comprar este auto>",
-  "puntos_atencion": "<2-3 puntos de atención específicos de este modelo en Argentina>",
-  "publicaciones_estimadas": <número estimado de publicaciones en MercadoLibre Argentina>
+  "promedio": 15000000,
+  "minimo": 12000000,
+  "maximo": 18000000,
+  "mediana": 14500000,
+  "confianza": "alta",
+  "analisis": "texto aqui",
+  "precio_justo": "texto aqui",
+  "consejo_compra": "texto aqui",
+  "puntos_atencion": "texto aqui",
+  "publicaciones_estimadas": 150
 }
 
-Basate en tu conocimiento del mercado argentino actual. Los precios deben estar en pesos argentinos (ARS) y ser realistas para marzo 2026.`;
+Reemplazá los valores con datos reales para ${vehiculo} en el mercado argentino de marzo 2026. Solo devolvé el JSON, nada más.`;
 
   try {
     const geminiRes = await fetch(
@@ -44,30 +44,41 @@ Basate en tu conocimiento del mercado argentino actual. Los precios deben estar 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 600 },
+          generationConfig: { temperature: 0.2, maxOutputTokens: 800 },
         }),
       }
     );
 
+    const geminiData = await geminiRes.json();
+
     if (!geminiRes.ok) {
-      const err = await geminiRes.json();
-      throw new Error(`Gemini ${geminiRes.status}: ${err.error?.message}`);
+      return res.status(500).json({
+        error: 'Gemini rechazó la solicitud',
+        status: geminiRes.status,
+        detalle: geminiData?.error?.message || JSON.stringify(geminiData),
+      });
     }
 
-    const geminiData = await geminiRes.json();
     let texto = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    // Limpiar markdown si Gemini lo agrega
-    texto = texto.replace(/```json|```/g, '').trim();
+    // Limpiar markdown
+    texto = texto.replace(/```json/g, '').replace(/```/g, '').trim();
 
-    const parsed = JSON.parse(texto);
+    let parsed;
+    try {
+      parsed = JSON.parse(texto);
+    } catch(parseErr) {
+      return res.status(500).json({
+        error: 'Gemini no devolvió JSON válido',
+        texto_recibido: texto.slice(0, 500),
+        parse_error: parseErr.message,
+      });
+    }
 
-    // Link directo a ML para que el usuario vea publicaciones reales
-    const mlQuery = encodeURIComponent([marca, modelo, version, anio].filter(Boolean).join(' '));
-    const mlLink  = `https://autos.mercadolibre.com.ar/${marca.toLowerCase().replace(/\s+/g,'-')}/${modelo.toLowerCase().replace(/\s+/g,'-')}/_OrderId_PRICE*ASC`;
+    const mlLink = `https://autos.mercadolibre.com.ar/${marca.toLowerCase().replace(/\s+/g,'-')}/${modelo.toLowerCase().replace(/\s+/g,'-')}/_OrderId_PRICE*ASC`;
 
     return res.status(200).json({
-      fuente:      'gemini',
+      fuente: 'gemini',
       vehiculo,
       estadisticas: {
         promedio: parsed.promedio,
@@ -75,17 +86,20 @@ Basate en tu conocimiento del mercado argentino actual. Los precios deben estar 
         maximo:   parsed.maximo,
         mediana:  parsed.mediana,
       },
-      confianza:    parsed.confianza,
-      analisis:     parsed.analisis,
-      precio_justo: parsed.precio_justo,
-      consejo_compra:    parsed.consejo_compra,
-      puntos_atencion:   parsed.puntos_atencion,
+      confianza:               parsed.confianza,
+      analisis:                parsed.analisis,
+      precio_justo:            parsed.precio_justo,
+      consejo_compra:          parsed.consejo_compra,
+      puntos_atencion:         parsed.puntos_atencion,
       publicaciones_estimadas: parsed.publicaciones_estimadas,
       ml_link: mlLink,
-      ml_query: mlQuery,
     });
 
   } catch (err) {
-    return res.status(500).json({ error: 'Error generando análisis', detalle: err.message });
+    return res.status(500).json({
+      error: 'Error inesperado',
+      detalle: err.message,
+      stack: err.stack?.slice(0, 300),
+    });
   }
 }
