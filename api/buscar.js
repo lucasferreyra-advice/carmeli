@@ -14,17 +14,20 @@ export default async function handler(req, res) {
     if (version?.trim()) query += ` ${version}`;
     if (anio?.trim())    query += ` ${anio}`;
 
+    const appToken = process.env.ML_ACCESS_TOKEN;
+    const headers = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    };
+    if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
+
     const url = `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(query)}&category=MLA1744&limit=50`;
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json',
-        'Accept-Language': 'es-AR,es;q=0.9',
-        'Referer': 'https://www.mercadolibre.com.ar/',
-        'Origin': 'https://www.mercadolibre.com.ar',
-      }
-    });
-    if (!response.ok) throw new Error(`ML API error: ${response.status}`);
+    const response = await fetch(url, { headers });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`ML API error: ${response.status} - ${body.slice(0, 200)}`);
+    }
 
     const data = await response.json();
     const items = (data.results || []).filter(i => i.price && i.currency_id === 'ARS');
