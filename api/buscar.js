@@ -10,63 +10,88 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Marca y modelo son requeridos' });
   }
 
-  const ACCESS_TOKEN = process.env.ML_ACCESS_TOKEN;
-  if (!ACCESS_TOKEN) {
-    return res.status(500).json({ error: 'ML_ACCESS_TOKEN no configurado en Vercel' });
+  const CLIENT_ID     = process.env.ML_CLIENT_ID;
+  const CLIENT_SECRET = process.env.ML_CLIENT_SECRET;
+
+  if (!CLIENT_ID || !CLIENT_SECRET) {
+    return res.status(500).json({ error: 'Variables no encontradas' });
   }
 
-  try {
-    let query = `${marca} ${modelo}`;
-    if (version?.trim()) query += ` ${version}`;
-    if (anio?.trim())    query += ` ${anio}`;
+  // PASO 1: obtener token
+  const tokenRes = await fetch('https://api.mercadolibre.com/oauth/token', {
+    method: 'POST',
+    headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type:    'client_credentials',
+      client_id:     CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+    }),
+  });
 
-    const searchRes = await fetch(
-      `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(query)}&limit=50`,
-      { headers: { 'Authorization': `Bearer ${ACCESS_TOKEN}` } }
-    );
+  const tokenBody = await tokenRes.json();
 
-    if (!searchRes.ok) {
-      const err = await searchRes.json();
-      throw new Error(`ML ${searchRes.status}: ${err.message || JSON.stringify(err)}`);
-    }
-
-    const data = await searchRes.json();
-
-    const items = (data.results || []).filter(i =>
-      i.price && i.currency_id === 'ARS' && i.price > 100000
-    );
-
-    const precios = items.map(i => i.price);
-    const promedio = precios.length ? Math.round(precios.reduce((a,b)=>a+b,0)/precios.length) : 0;
-    const minimo   = precios.length ? Math.min(...precios) : 0;
-    const maximo   = precios.length ? Math.max(...precios) : 0;
-    const sorted   = [...precios].sort((a,b)=>a-b);
-    const mediana  = sorted.length
-      ? sorted.length % 2 === 0
-        ? Math.round((sorted[sorted.length/2-1]+sorted[sorted.length/2])/2)
-        : sorted[Math.floor(sorted.length/2)]
-      : 0;
-
-    const vehiculos = items.slice(0,20).map(item => ({
-      id:        item.id,
-      titulo:    item.title,
-      precio:    item.price,
-      anio:      item.attributes?.find(a=>a.id==='VEHICLE_YEAR')?.value_name || null,
-      km:        item.attributes?.find(a=>a.id==='KILOMETERS')?.value_name || null,
-      link:      item.permalink,
-      imagen:    item.thumbnail,
-      ubicacion: item.address?.state_name || null,
-      condicion: item.condition === 'used' ? 'Usado' : 'Nuevo',
-    }));
-
-    return res.status(200).json({
-      total:        data.paging?.total || 0,
-      muestra:      items.length,
-      estadisticas: { promedio, minimo, maximo, mediana },
-      vehiculos,
+  if (!tokenRes.ok) {
+    return res.status(500).json({
+      paso: 'TOKEN FALLIDO',
+      status: tokenRes.status,
+      respuesta: tokenBody,
     });
-
-  } catch (err) {
-    return res.status(500).json({ error: 'Error consultando ML', detalle: err.message });
   }
+
+  const { access_token } = tokenBody;
+
+  // PASO 2: buscar
+  let query = `${marca} ${modelo}`;
+  if (version?.trim()) query += ` ${version}`;
+  if (anio?.trim())    query += ` ${anio}`;
+
+  const searchRes = await fetch(
+    `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(query)}&limit=50`,
+    { headers: { 'Authorization': `Bearer ${access_token}`, 'Accept': 'application/json' } }
+  );
+
+  const searchBody = await searchRes.json();
+
+  if (!searchRes.ok) {
+    return res.status(500).json({
+      paso: 'BUSQUEDA FALLIDA',
+      status: searchRes.status,
+      respuesta: searchBody,
+      token_usado: access_token?.slice(0, 20) + '...',
+    });
+  }
+
+  // Procesar
+  const items = (searchBody.results || []).filter(i =>
+    i.price && i.currency_id === 'ARS' && i.price > 100000
+  );
+  const precios = items.map(i => i.price);
+  const promedio = precios.length ? Math.round(precios.reduce((a,b)=>a+b,0)/precios.length) : 0;
+  const minimo   = precios.length ? Math.min(...precios) : 0;
+  const maximo   = precios.length ? Math.max(...precios) : 0;
+  const sorted   = [...precios].sort((a,b)=>a-b);
+  const mediana  = sorted.length
+    ? sorted.length % 2 === 0
+      ? Math.round((sorted[sorted.length/2-1]+sorted[sorted.length/2])/2)
+      : sorted[Math.floor(sorted.length/2)]
+    : 0;
+
+  const vehiculos = items.slice(0,20).map(item => ({
+    id:        item.id,
+    titulo:    item.title,
+    precio:    item.price,
+    anio:      item.attributes?.find(a=>a.id==='VEHICLE_YEAR')?.value_name || null,
+    km:        item.attributes?.find(a=>a.id==='KILOMETERS')?.value_name || null,
+    link:      item.permalink,
+    imagen:    item.thumbnail,
+    ubicacion: item.address?.state_name || null,
+    condicion: item.condition === 'used' ? 'Usado' : 'Nuevo',
+  }));
+
+  return res.status(200).json({
+    total:        searchBody.paging?.total || 0,
+    muestra:      items.length,
+    estadisticas: { promedio, minimo, maximo, mediana },
+    vehiculos,
+  });
 }
