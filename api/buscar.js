@@ -13,26 +13,27 @@ export default async function handler(req, res) {
     let query = `${marca} ${modelo}`;
     if (version?.trim()) query += ` ${version}`;
     if (anio?.trim())    query += ` ${anio}`;
+    query += ' auto';
 
-    const appToken = process.env.ML_ACCESS_TOKEN;
-    const headers = {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json',
-    };
-    if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
+    // Sin token, sin categoria, sin Authorization — API publica ML
+    const url = `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(query)}&limit=50`;
 
-    const url = `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(query)}&category=MLA1744&limit=50`;
-    const response = await fetch(url, { headers });
+    const response = await fetch(url, {
+      headers: { 'Accept': 'application/json' }
+    });
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`ML API error: ${response.status} - ${body.slice(0, 200)}`);
+      throw new Error(`ML ${response.status}: ${body.slice(0, 200)}`);
     }
 
     const data = await response.json();
-    const items = (data.results || []).filter(i => i.price && i.currency_id === 'ARS');
-    const precios = items.map(i => i.price);
 
+    const items = (data.results || []).filter(i =>
+      i.price && i.currency_id === 'ARS' && i.price > 100000
+    );
+
+    const precios = items.map(i => i.price);
     const promedio = precios.length ? Math.round(precios.reduce((a, b) => a + b, 0) / precios.length) : 0;
     const minimo   = precios.length ? Math.min(...precios) : 0;
     const maximo   = precios.length ? Math.max(...precios) : 0;
@@ -57,11 +58,12 @@ export default async function handler(req, res) {
     }));
 
     return res.status(200).json({
-      total: data.paging?.total || 0,
-      muestra: items.length,
+      total:        data.paging?.total || 0,
+      muestra:      items.length,
       estadisticas: { promedio, minimo, maximo, mediana },
       vehiculos,
     });
+
   } catch (err) {
     return res.status(500).json({ error: 'Error consultando MercadoLibre', detalle: err.message });
   }
