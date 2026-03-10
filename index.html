@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;600;800;900&family=Montserrat:wght@400;500;600;700&family=Roboto+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
   <style>
-    :root { 
+    :root {
       --amber:  #E8A020;
       --amber2: #c98010;
       --green:  #16a34a;
@@ -541,7 +541,9 @@ if (savedTheme === 'dark') {
   document.getElementById('theme-chk') && (document.getElementById('theme-chk').checked = true);
 }
 
-/* ── BÚSQUEDA — llama directo a ML desde el browser (sin proxy) ── */
+/* ── BÚSQUEDA — usa Gemini para precios + link directo a ML ── */
+function fmt(n) { return '$ ' + Math.round(n).toLocaleString('es-AR'); }
+
 async function buscar() {
   const marca   = document.getElementById('fm').value.trim();
   const modelo  = document.getElementById('fmo').value.trim();
@@ -556,62 +558,34 @@ async function buscar() {
 
   document.getElementById('stats-sec').style.display = 'none';
   document.getElementById('ai-sec').style.display = 'none';
+  document.getElementById('results-sec').innerHTML = '';
   document.getElementById('results-sec').innerHTML = `
     <div class="loader">
       <div class="loader-ring"></div>
-      <div class="loader-txt">Consultando MercadoLibre...</div>
+      <div class="loader-txt">Analizando mercado con IA...</div>
     </div>`;
 
   try {
-    // Llamada directa al browser — ML permite CORS desde navegadores
-    let query = `${marca} ${modelo}`;
-    if (version) query += ` ${version}`;
-    if (anio)    query += ` ${anio}`;
-
-    const params = new URLSearchParams({ marca, modelo, version, anio });
+    const params = new URLSearchParams({ marca, modelo, version, anio, km });
     const res = await fetch(`/api/buscar?${params}`);
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`HTTP ${res.status}: ${txt.slice(0,200)}`);
-    }
     const data = await res.json();
-    if (data.error) throw new Error(data.error + (data.detalle ? ` — ${data.detalle}` : ''));
 
-    renderResultados(data, marca, modelo, km);
-    if (data.vehiculos?.length > 0) {
-      pedirConsejo(data, marca, modelo, version, anio, km);
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `Error ${res.status}`);
     }
 
-  } catch (err) {
-    document.getElementById('results-sec').innerHTML =
-      `<div class="err-box">⚠️ ${err.message}</div>`;
-  } finally {
-    btn.disabled = false;
-  }
-}
+    const s = data.estadisticas;
 
-/* ── RENDER STATS + LISTA ── */
-function fmt(n) { return '$ ' + n.toLocaleString('es-AR'); }
+    // STATS
+    const confianzaColor = { alta: '#16a34a', media: '#E8A020', baja: '#dc2626' };
+    const color = confianzaColor[data.confianza] || '#E8A020';
 
-function renderResultados(data, marca, modelo, km) {
-  // Defensive: si la respuesta no tiene la estructura esperada
-  if (!data || data.error || data.problema || data.diagnostico) {
-    const msg = data?.error || data?.problema || data?.diagnostico || 'Respuesta inesperada de la API';
-    const detalle = data?.detalle || data?.token_recibido || '';
-    document.getElementById('results-sec').innerHTML =
-      `<div class="err-box">⚠️ ${msg}${detalle ? `<br/><small style="opacity:.7">${detalle}</small>` : ''}</div>`;
-    return;
-  }
-
-  const { estadisticas: s, vehiculos = [], total = 0, muestra = 0 } = data;
-
-  if (muestra > 0) {
     document.getElementById('stats-sec').innerHTML = `
       <div class="stats-grid">
         <div class="stat-card primary">
-          <div class="stat-lbl">Precio promedio</div>
+          <div class="stat-lbl">Precio promedio IA</div>
           <div class="stat-val">${fmt(s.promedio)}</div>
-          <div class="stat-sub">${muestra} publicaciones</div>
+          <div class="stat-sub">Confianza: <span style="color:#fff;font-weight:700">${data.confianza}</span></div>
         </div>
         <div class="stat-card">
           <div class="stat-lbl">Mediana</div>
@@ -619,113 +593,67 @@ function renderResultados(data, marca, modelo, km) {
           <div class="stat-sub">Precio central</div>
         </div>
         <div class="stat-card">
-          <div class="stat-lbl">Mínimo</div>
+          <div class="stat-lbl">Mínimo estimado</div>
           <div class="stat-val">${fmt(s.minimo)}</div>
           <div class="stat-sub">Más económico</div>
         </div>
         <div class="stat-card">
-          <div class="stat-lbl">Máximo</div>
+          <div class="stat-lbl">Máximo estimado</div>
           <div class="stat-val">${fmt(s.maximo)}</div>
           <div class="stat-sub">Más caro</div>
         </div>
       </div>`;
     document.getElementById('stats-sec').style.display = 'block';
-  }
 
-  if (!vehiculos.length) {
-    document.getElementById('results-sec').innerHTML = `
-      <div class="empty">
-        <div class="icon">🔎</div>
-        <h3>Sin resultados</h3>
-        <p>No encontramos publicaciones para "${marca} ${modelo}".<br/>Probá con términos más generales.</p>
-      </div>`;
-    return;
-  }
-
-  const items = vehiculos.map(v => `
-    <a class="vc" href="${v.link}" target="_blank" rel="noopener">
-      ${v.imagen
-        ? `<img class="vc-img" src="${v.imagen}" alt="${v.titulo}" loading="lazy" />`
-        : `<div class="vc-ph">🚗</div>`}
-      <div class="vc-info">
-        <h3>${v.titulo}</h3>
-        <div class="vc-meta">
-          ${v.anio      ? `<span class="meta-t">📅 ${v.anio}</span>` : ''}
-          ${v.km        ? `<span class="meta-t">🛣️ ${Number(v.km).toLocaleString('es-AR')} km</span>` : ''}
-          ${v.ubicacion ? `<span class="meta-t">📍 ${v.ubicacion}</span>` : ''}
-          <span class="meta-t">${v.condicion}</span>
-        </div>
-      </div>
-      <div class="vc-price">
-        <div class="price">${fmt(v.precio)}</div>
-        <div class="cta">Ver en ML →</div>
-      </div>
-    </a>`).join('');
-
-  document.getElementById('results-sec').innerHTML = `
-    <div class="results-hdr">
-      <div class="results-title">// Publicaciones encontradas</div>
-      <div class="results-count">${total.toLocaleString('es-AR')} totales en ML</div>
-    </div>
-    <div class="vehicle-list">${items}</div>`;
-}
-
-/* ── AI CONSEJO ── */
-async function pedirConsejo(data, marca, modelo, version, anio, km) {
-  const aiSec = document.getElementById('ai-sec');
-  aiSec.innerHTML = `
-    <div class="ai-panel">
-      <div class="ai-header">
-        <div class="ai-badge"><div class="ai-dot"></div> IA</div>
-        <div class="ai-title">Análisis inteligente de mercado</div>
-      </div>
-      <div class="ai-loading">
-        <div class="ai-ring"></div>
-        <div class="ai-loading-txt">Analizando precios con IA...</div>
-      </div>
-    </div>`;
-  aiSec.style.display = 'block';
-
-  try {
-    const busqueda = [marca, modelo, version, anio].filter(Boolean).join(' ');
-    const res = await fetch('/api/consejo', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        busqueda,
-        estadisticas: data.estadisticas,
-        vehiculos: data.vehiculos,
-        km,
-      }),
-    });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { consejo } = await res.json();
-
-    // Formatear secciones con emojis en negrita
-    const formatted = consejo
-      .replace(/(💰[^\n]+)/g, '<strong>$1</strong>')
-      .replace(/(🎯[^\n]+)/g, '<strong>$1</strong>')
-      .replace(/(✅[^\n]+)/g, '<strong>$1</strong>')
-      .replace(/(⚠️[^\n]+)/g, '<strong>$1</strong>');
-
-    aiSec.innerHTML = `
+    // AI PANEL
+    document.getElementById('ai-sec').innerHTML = `
       <div class="ai-panel">
         <div class="ai-header">
           <div class="ai-badge"><div class="ai-dot"></div> IA</div>
-          <div class="ai-title">Análisis inteligente de mercado</div>
+          <div class="ai-title">Análisis inteligente de mercado — ${data.vehiculo}</div>
         </div>
-        <div class="ai-content">${formatted}</div>
+        <div class="ai-content">
+<strong>💰 ANÁLISIS DE PRECIO</strong>
+${data.analisis}
+
+<strong>🎯 PRECIO JUSTO</strong>
+${data.precio_justo}
+
+<strong>✅ CONSEJO DE COMPRA</strong>
+${data.consejo_compra}
+
+<strong>⚠️ PUNTOS A TENER EN CUENTA</strong>
+${data.puntos_atencion}
+        </div>
       </div>`;
+    document.getElementById('ai-sec').style.display = 'block';
+
+    // LINK A ML
+    document.getElementById('results-sec').innerHTML = `
+      <div class="panel" style="text-align:center; padding:28px 32px;">
+        <div class="panel-label">// Ver publicaciones reales</div>
+        <p style="font-family:'Roboto Mono',monospace;font-size:12px;color:var(--mt);margin-bottom:20px;margin-top:8px;">
+          ~${(data.publicaciones_estimadas||0).toLocaleString('es-AR')} publicaciones estimadas en MercadoLibre Argentina
+        </p>
+        <a href="${data.ml_link}" target="_blank" rel="noopener"
+           style="display:inline-flex;align-items:center;gap:10px;background:var(--amber);color:#fff;
+                  text-decoration:none;padding:13px 28px;border-radius:10px;
+                  font-family:'Raleway',sans-serif;font-weight:800;font-size:15px;letter-spacing:2px;
+                  transition:all .2s;"
+           onmouseover="this.style.background='var(--amber2)'"
+           onmouseout="this.style.background='var(--amber)'">
+          🔗 VER EN MERCADOLIBRE
+        </a>
+        <p style="font-family:'Roboto Mono',monospace;font-size:10px;color:var(--mt);margin-top:16px;">
+          * Los precios mostrados son estimaciones de IA basadas en el mercado argentino
+        </p>
+      </div>`;
+
   } catch (err) {
-    aiSec.innerHTML = `
-      <div class="ai-panel">
-        <div class="ai-header">
-          <div class="ai-badge">IA</div>
-          <div class="ai-title">Análisis no disponible</div>
-        </div>
-        <div class="err-box">No se pudo generar el análisis IA. Verificá que ANTHROPIC_API_KEY esté configurada en Vercel.</div>
-      </div>`;
+    document.getElementById('results-sec').innerHTML =
+      `<div class="err-box">⚠️ ${err.message}</div>`;
+  } finally {
+    btn.disabled = false;
   }
 }
 
