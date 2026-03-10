@@ -568,50 +568,17 @@ async function buscar() {
     if (version) query += ` ${version}`;
     if (anio)    query += ` ${anio}`;
 
-    const url = `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(query)}&limit=50`;
-    const res = await fetch(url);
-
-    if (!res.ok) throw new Error(`MercadoLibre devolvió error ${res.status}`);
-
-    const raw = await res.json();
-
-    // Procesar respuesta
-    const items = (raw.results || []).filter(i =>
-      i.price && i.currency_id === 'ARS' && i.price > 100000
-    );
-
-    const precios = items.map(i => i.price);
-    const promedio = precios.length ? Math.round(precios.reduce((a,b)=>a+b,0)/precios.length) : 0;
-    const minimo   = precios.length ? Math.min(...precios) : 0;
-    const maximo   = precios.length ? Math.max(...precios) : 0;
-    const sorted   = [...precios].sort((a,b)=>a-b);
-    const mediana  = sorted.length
-      ? sorted.length % 2 === 0
-        ? Math.round((sorted[sorted.length/2-1]+sorted[sorted.length/2])/2)
-        : sorted[Math.floor(sorted.length/2)]
-      : 0;
-
-    const vehiculos = items.slice(0,20).map(item => ({
-      id:        item.id,
-      titulo:    item.title,
-      precio:    item.price,
-      anio:      item.attributes?.find(a=>a.id==='VEHICLE_YEAR')?.value_name || null,
-      km:        item.attributes?.find(a=>a.id==='KILOMETERS')?.value_name || null,
-      link:      item.permalink,
-      imagen:    item.thumbnail,
-      ubicacion: item.address?.state_name || null,
-      condicion: item.condition === 'used' ? 'Usado' : 'Nuevo',
-    }));
-
-    const data = {
-      total: raw.paging?.total || 0,
-      muestra: items.length,
-      estadisticas: { promedio, minimo, maximo, mediana },
-      vehiculos,
-    };
+    const params = new URLSearchParams({ marca, modelo, version, anio });
+    const res = await fetch(`/api/buscar?${params}`);
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`HTTP ${res.status}: ${txt.slice(0,200)}`);
+    }
+    const data = await res.json();
+    if (data.error) throw new Error(data.error + (data.detalle ? ` — ${data.detalle}` : ''));
 
     renderResultados(data, marca, modelo, km);
-    if (vehiculos.length > 0) {
+    if (data.vehiculos?.length > 0) {
       pedirConsejo(data, marca, modelo, version, anio, km);
     }
 
