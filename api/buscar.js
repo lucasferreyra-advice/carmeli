@@ -9,50 +9,24 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Marca y modelo son requeridos' });
   }
 
-  const CLIENT_ID     = process.env.ML_CLIENT_ID;
-  const CLIENT_SECRET = process.env.ML_CLIENT_SECRET;
-
-  // DIAGNÓSTICO TEMPORAL — nos muestra exactamente qué ve la función
-  if (!CLIENT_ID || !CLIENT_SECRET) {
-    return res.status(500).json({
-      error: 'Variables no encontradas',
-      ML_CLIENT_ID_existe:     !!CLIENT_ID,
-      ML_CLIENT_SECRET_existe: !!CLIENT_SECRET,
-      todas_las_vars:          Object.keys(process.env).filter(k => k.startsWith('ML_')),
-      node_env:                process.env.NODE_ENV,
-    });
+  const ACCESS_TOKEN = process.env.ML_ACCESS_TOKEN;
+  if (!ACCESS_TOKEN) {
+    return res.status(500).json({ error: 'ML_ACCESS_TOKEN no configurado en Vercel' });
   }
 
   try {
-    const tokenRes = await fetch('https://api.mercadolibre.com/oauth/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type:    'client_credentials',
-        client_id:     CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-      }),
-    });
-
-    if (!tokenRes.ok) {
-      const err = await tokenRes.json();
-      throw new Error(`Token error: ${err.message || tokenRes.status}`);
-    }
-
-    const { access_token } = await tokenRes.json();
-
     let query = `${marca} ${modelo}`;
     if (version?.trim()) query += ` ${version}`;
     if (anio?.trim())    query += ` ${anio}`;
 
     const searchRes = await fetch(
       `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(query)}&limit=50`,
-      { headers: { 'Authorization': `Bearer ${access_token}` } }
+      { headers: { 'Authorization': `Bearer ${ACCESS_TOKEN}` } }
     );
 
     if (!searchRes.ok) {
       const err = await searchRes.json();
-      throw new Error(`Search ${searchRes.status}: ${err.message || JSON.stringify(err)}`);
+      throw new Error(`ML ${searchRes.status}: ${err.message || JSON.stringify(err)}`);
     }
 
     const data = await searchRes.json();
