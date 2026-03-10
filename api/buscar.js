@@ -12,12 +12,18 @@ export default async function handler(req, res) {
   const CLIENT_ID     = process.env.ML_CLIENT_ID;
   const CLIENT_SECRET = process.env.ML_CLIENT_SECRET;
 
+  // DIAGNÓSTICO TEMPORAL — nos muestra exactamente qué ve la función
   if (!CLIENT_ID || !CLIENT_SECRET) {
-    return res.status(500).json({ error: 'ML_CLIENT_ID o ML_CLIENT_SECRET no configurados en Vercel' });
+    return res.status(500).json({
+      error: 'Variables no encontradas',
+      ML_CLIENT_ID_existe:     !!CLIENT_ID,
+      ML_CLIENT_SECRET_existe: !!CLIENT_SECRET,
+      todas_las_vars:          Object.keys(process.env).filter(k => k.startsWith('ML_')),
+      node_env:                process.env.NODE_ENV,
+    });
   }
 
   try {
-    // 1. Obtener access token con client_credentials
     const tokenRes = await fetch('https://api.mercadolibre.com/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -35,19 +41,18 @@ export default async function handler(req, res) {
 
     const { access_token } = await tokenRes.json();
 
-    // 2. Buscar con el token
     let query = `${marca} ${modelo}`;
     if (version?.trim()) query += ` ${version}`;
     if (anio?.trim())    query += ` ${anio}`;
 
-    const searchUrl = `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(query)}&limit=50`;
-    const searchRes = await fetch(searchUrl, {
-      headers: { 'Authorization': `Bearer ${access_token}` },
-    });
+    const searchRes = await fetch(
+      `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(query)}&limit=50`,
+      { headers: { 'Authorization': `Bearer ${access_token}` } }
+    );
 
     if (!searchRes.ok) {
       const err = await searchRes.json();
-      throw new Error(`Search error ${searchRes.status}: ${err.message || JSON.stringify(err)}`);
+      throw new Error(`Search ${searchRes.status}: ${err.message || JSON.stringify(err)}`);
     }
 
     const data = await searchRes.json();
