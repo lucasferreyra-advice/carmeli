@@ -4,93 +4,88 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const { marca, modelo, version, anio } = req.query;
+  const { marca, modelo, version, anio, km } = req.query;
   if (!marca || !modelo) {
     return res.status(400).json({ error: 'Marca y modelo son requeridos' });
   }
 
-  const CLIENT_ID     = process.env.ML_CLIENT_ID;
-  const CLIENT_SECRET = process.env.ML_CLIENT_SECRET;
-
-  if (!CLIENT_ID || !CLIENT_SECRET) {
-    return res.status(500).json({ error: 'Variables no encontradas' });
+  const GEMINI_KEY = process.env.GEMINI_API_KEY;
+  if (!GEMINI_KEY) {
+    return res.status(500).json({ error: 'GEMINI_API_KEY no configurada en Vercel' });
   }
 
-  // PASO 1: obtener token
-  const tokenRes = await fetch('https://api.mercadolibre.com/oauth/token', {
-    method: 'POST',
-    headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type:    'client_credentials',
-      client_id:     CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-    }),
-  });
+  const vehiculo = [marca, modelo, version, anio].filter(Boolean).join(' ');
+  const kmInfo   = km ? ` con ${Number(km).toLocaleString('es-AR')} km` : '';
 
-  const tokenBody = await tokenRes.json();
+  const prompt = `Sos un experto tasador del mercado automotor argentino. El usuario consulta el precio de: ${vehiculo}${kmInfo}.
 
-  if (!tokenRes.ok) {
-    return res.status(500).json({
-      paso: 'TOKEN FALLIDO',
-      status: tokenRes.status,
-      respuesta: tokenBody,
+Respondé ÚNICAMENTE con un objeto JSON válido, sin texto adicional, sin markdown, sin explicaciones fuera del JSON:
+
+{
+  "promedio": <número entero en ARS>,
+  "minimo": <número entero en ARS>,
+  "maximo": <número entero en ARS>,
+  "mediana": <número entero en ARS>,
+  "confianza": "<alta|media|baja>",
+  "analisis": "<2-3 oraciones sobre el precio de mercado actual de este auto en Argentina>",
+  "precio_justo": "<rango recomendado para comprar y para vender>",
+  "consejo_compra": "<2-3 consejos concretos para quien quiere comprar este auto>",
+  "puntos_atencion": "<2-3 puntos de atención específicos de este modelo en Argentina>",
+  "publicaciones_estimadas": <número estimado de publicaciones en MercadoLibre Argentina>
+}
+
+Basate en tu conocimiento del mercado argentino actual. Los precios deben estar en pesos argentinos (ARS) y ser realistas para marzo 2026.`;
+
+  try {
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 600 },
+        }),
+      }
+    );
+
+    if (!geminiRes.ok) {
+      const err = await geminiRes.json();
+      throw new Error(`Gemini ${geminiRes.status}: ${err.error?.message}`);
+    }
+
+    const geminiData = await geminiRes.json();
+    let texto = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    // Limpiar markdown si Gemini lo agrega
+    texto = texto.replace(/```json|```/g, '').trim();
+
+    const parsed = JSON.parse(texto);
+
+    // Link directo a ML para que el usuario vea publicaciones reales
+    const mlQuery = encodeURIComponent([marca, modelo, version, anio].filter(Boolean).join(' '));
+    const mlLink  = `https://autos.mercadolibre.com.ar/${marca.toLowerCase().replace(/\s+/g,'-')}/${modelo.toLowerCase().replace(/\s+/g,'-')}/_OrderId_PRICE*ASC`;
+
+    return res.status(200).json({
+      fuente:      'gemini',
+      vehiculo,
+      estadisticas: {
+        promedio: parsed.promedio,
+        minimo:   parsed.minimo,
+        maximo:   parsed.maximo,
+        mediana:  parsed.mediana,
+      },
+      confianza:    parsed.confianza,
+      analisis:     parsed.analisis,
+      precio_justo: parsed.precio_justo,
+      consejo_compra:    parsed.consejo_compra,
+      puntos_atencion:   parsed.puntos_atencion,
+      publicaciones_estimadas: parsed.publicaciones_estimadas,
+      ml_link: mlLink,
+      ml_query: mlQuery,
     });
+
+  } catch (err) {
+    return res.status(500).json({ error: 'Error generando análisis', detalle: err.message });
   }
-
-  const { access_token } = tokenBody;
-
-  // PASO 2: buscar
-  let query = `${marca} ${modelo}`;
-  if (version?.trim()) query += ` ${version}`;
-  if (anio?.trim())    query += ` ${anio}`;
-
-  const searchRes = await fetch(
-    `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(query)}&limit=50`,
-    { headers: { 'Authorization': `Bearer ${access_token}`, 'Accept': 'application/json' } }
-  );
-
-  const searchBody = await searchRes.json();
-
-  if (!searchRes.ok) {
-    return res.status(500).json({
-      paso: 'BUSQUEDA FALLIDA',
-      status: searchRes.status,
-      respuesta: searchBody,
-      token_usado: access_token?.slice(0, 20) + '...',
-    });
-  }
-
-  // Procesar
-  const items = (searchBody.results || []).filter(i =>
-    i.price && i.currency_id === 'ARS' && i.price > 100000
-  );
-  const precios = items.map(i => i.price);
-  const promedio = precios.length ? Math.round(precios.reduce((a,b)=>a+b,0)/precios.length) : 0;
-  const minimo   = precios.length ? Math.min(...precios) : 0;
-  const maximo   = precios.length ? Math.max(...precios) : 0;
-  const sorted   = [...precios].sort((a,b)=>a-b);
-  const mediana  = sorted.length
-    ? sorted.length % 2 === 0
-      ? Math.round((sorted[sorted.length/2-1]+sorted[sorted.length/2])/2)
-      : sorted[Math.floor(sorted.length/2)]
-    : 0;
-
-  const vehiculos = items.slice(0,20).map(item => ({
-    id:        item.id,
-    titulo:    item.title,
-    precio:    item.price,
-    anio:      item.attributes?.find(a=>a.id==='VEHICLE_YEAR')?.value_name || null,
-    km:        item.attributes?.find(a=>a.id==='KILOMETERS')?.value_name || null,
-    link:      item.permalink,
-    imagen:    item.thumbnail,
-    ubicacion: item.address?.state_name || null,
-    condicion: item.condition === 'used' ? 'Usado' : 'Nuevo',
-  }));
-
-  return res.status(200).json({
-    total:        searchBody.paging?.total || 0,
-    muestra:      items.length,
-    estadisticas: { promedio, minimo, maximo, mediana },
-    vehiculos,
-  });
 }
